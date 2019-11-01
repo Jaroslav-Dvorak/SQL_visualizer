@@ -516,12 +516,12 @@ matplotlib.backend_bases.NavigationToolbar2.toolitems = (
         )
 
 
-# Stroj = ui_console.select_machine(seznam_stroju)
-# TimeFrom, TimeTo = ui_console.select_datetime()
+Stroj = ui_console.select_machine(seznam_stroju)
+TimeFrom, TimeTo = ui_console.select_datetime()
 
-Stroj = "BM_1"
-TimeFrom = datetime(2019, 9, 2)
-TimeTo = datetime(2019, 9, 3)
+# Stroj = "BM_1"
+# TimeFrom = datetime(2019, 9, 2)
+# TimeTo = datetime(2019, 9, 3)
 
 # g = Graf(stroj=Stroj, time_from=TimeFrom, time_to=TimeTo)
 h = Graf(stroj=Stroj, time_from=TimeFrom, time_to=TimeTo)
