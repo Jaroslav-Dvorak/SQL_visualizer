@@ -100,7 +100,13 @@ def get_data(stroj, time_from, time_to):
             last[j] = compl_data[j][-1]
     compl_data[max(last, key=lambda k: last[k])].append(time_to)    # zakončení grafu podle zadaného času
     print(f"Prepared in {round(time.time() - start_time, 3)}s")     # výpis doby přípravy datového balíku
-    return compl_data
+
+    # data z počítadel
+    cursor.execute(F"SELECT POCITADLO, CAS FROM POCITADLA WHERE ID_STROJE={id_stroje} AND "
+                   f" CAS BETWEEN '{time_from}' AND '{time_to}' ORDER BY CAS")
+    counter_status = cursor.fetchall()
+
+    return compl_data, counter_status
     # example: { "Provoz" : datetime, "Naprazdno" : datetime, "Zastaveno" : datetime, "Porucha1" : datetime, ...}
 
 
@@ -111,7 +117,8 @@ class Dataformat:
         start_time = time.time()                                        # měření času
         self.time_from = time_from                                      # začátek grafu
         self.time_to = time_to                                          # konec grafu
-        self.timestamps = copy.deepcopy(tmstmps)                        # kopie vložených dat
+        self.timestamps, self.counter_status = copy.deepcopy(tmstmps)   # kopie vložených dat
+
         self.F_T = self.stamps2from_to()                                # vytvoření začátku a konce stavu
         print(f"Formated in {round(time.time() - start_time, 3)}s")
 
@@ -216,6 +223,21 @@ class Dataformat:
             out[K] = len(V)
         return out
 
+    def production(self, time_from, time_to):
+        """vrátí počet vyrobených kusů v časovém období"""
+        kusy = 0
+        data = self.counter_status
+        for idx, _ in enumerate(data):
+            if time_from < data[idx][1] < time_to:
+                try:
+                    if data[idx][0] > data[idx - 1][0]:
+                        kusy += data[idx][0] - data[idx - 1][0]
+                    elif data[idx][0] < data[idx - 1][0]:
+                        kusy += 0 + data[idx][0]
+                except IndexError:
+                    pass
+        return kusy
+
 
 class Graf:
     """vykreslí graf pomocí knihovny matplotlib"""
@@ -225,9 +247,11 @@ class Graf:
         self.time_to = time_to
 
         start_time = time.time()
-        self.data = get_data(stroj=stroj, time_from=time_from, time_to=time_to)              # stažení dat z db
+        self.data = get_data(stroj=stroj, time_from=time_from, time_to=time_to)    # stažení dat z db
         self.formated = Dataformat(tmstmps=self.data, time_from=time_from, time_to=time_to)  # formát (start, stop)
         self.BrokData = self.formated.brokenbarh()      # formát (start, duration)
+
+        # print(self.formated.production(time_from=time_from, time_to=time_to))
 
         # plt.style.use(plt.style.available[4])
         # plt.xkcd()
@@ -263,13 +287,16 @@ class Graf:
              '%S.%f', ]     # secs
         self.formatter.formats = f
         self.formatter.zero_formats = f
-        self.formatter.offset_formats = ['', '', '', '', '', '', '']   # vpravo pod osou - nic
+        self.formatter.offset_formats = ['', '', '', '', '', '', '']           # vpravo pod osou - nic
 
-        left_date = datetime.strftime(time_from, "%d.%m.%Y\n%H:%M:%S")  # dt přesného začátku grafu
-        right_date = datetime.strftime(time_to, "%d.%m.%Y\n%H:%M:%S")   # dt přesného konce grafu
+        left_date = datetime.strftime(time_from, "%d.%m.%Y\n%H:%M:%S")         # dt přesného začátku grafu
+        right_date = datetime.strftime(time_to, "%d.%m.%Y\n%H:%M:%S")          # dt přesného konce grafu
 
-        self.left_date = self.fig.text(0.01, 0.1, left_date, weight='bold')     # pozice dt začátku
-        self.right_date = self.fig.text(1.76, 0.1, right_date, weight='bold')   # pozice dt konce
+        self.left_date = self.fig.text(0.01, 0.1, left_date, weight='bold')    # pozice dt začátku
+        self.right_date = self.fig.text(1.76, 0.1, right_date, weight='bold')  # pozice dt konce
+
+        self.production = self.fig.text(0.43, 0.01, "", weight='bold',         # pozice production textu (vyrobeno kusů)
+                                        horizontalalignment='center')
 
         self.high_ax3 = 100                                                 # výška grafu poruch
         self.yticks, self.ylabels, self.high_bahr = self.poruchy_labels()   # pozice popisků, popisky, výška brok-bahrs
@@ -295,6 +322,7 @@ class Graf:
         # self.pie_2()      # graf vpravo nahoře
         self.poruchy_3()    # graf vlevo dole
         # self.poruchy_4()  # graf vpravo dole
+
         print(f"Rendered in {round(time.time() - start_time, 3)}s")
 
     def p_n_z_1(self):
@@ -443,33 +471,37 @@ class Graf:
         matplotlib.backends.backend_tkagg.NavigationToolbar2Tk.press_zoom(self, event)
 
     def on_xlims_change_1(self, axes):
-        """provede úpravy po zoomu"""
-        self.left_date.remove()                 # odstranění dt přesného začátku grafu
-        self.right_date.remove()                # odstranění dt přesného konce grafu
-        time_from = self.ax1.get_xlim()[0]      # časová známka - začátek (float)
-        time_to = self.ax1.get_xlim()[1]        # časová známka - konec (float)
-        self.pie_2(time_from, time_to)          # vykreslení vpravo nahoře
-        self.poruchy_4(time_from, time_to)      # vykreslení vpravo dole
-
-        # převod float --> dt --> string a vložení na okraje osy x
-        left_date = datetime.strftime(matplotlib.dates.num2date(time_from), "%d.%m.%Y\n%H:%M:%S")
-        right_date = datetime.strftime(matplotlib.dates.num2date(time_to), "%d.%m.%Y\n%H:%M:%S")
-        self.left_date = self.fig.text(0.1, 0.01, left_date, weight='bold', horizontalalignment='center')
-        self.right_date = self.fig.text(0.76, 0.01, right_date, weight='bold', horizontalalignment='center')
+        """provede úpravy po zoomu na grafu 1"""
+        self.redraw(self.ax1.get_xlim()[0], self.ax1.get_xlim()[1])
 
     def on_xlims_change_3(self, axes):
+        """provede úpravy po zoomu na grafu 3"""
+        self.redraw(self.ax3.get_xlim()[0], self.ax3.get_xlim()[1])
+
+    def redraw(self, time_from, time_to):
+        """překreslí grafy a textové artist značky"""
         self.left_date.remove()                 # odstranění dt přesného začátku grafu
         self.right_date.remove()                # odstranění dt přesného konce grafu
-        time_from = self.ax3.get_xlim()[0]      # časová známka - začátek (float)
-        time_to = self.ax3.get_xlim()[1]        # časová známka - konec (float)
         self.pie_2(time_from, time_to)          # vykreslení vpravo nahoře
         self.poruchy_4(time_from, time_to)      # vykreslení vpravo dole
+
+        self.production.remove()                # odstanění production textu
 
         # převod float --> dt --> string a vložení na okraje osy x
         left_date = datetime.strftime(matplotlib.dates.num2date(time_from), "%d.%m.%Y\n%H:%M:%S")
         right_date = datetime.strftime(matplotlib.dates.num2date(time_to), "%d.%m.%Y\n%H:%M:%S")
         self.left_date = self.fig.text(0.1, 0.01, left_date, weight='bold', horizontalalignment='center')
         self.right_date = self.fig.text(0.76, 0.01, right_date, weight='bold', horizontalalignment='center')
+
+        # počítadlo kusů:
+        time_from_dt = mdates.num2date(time_from).replace(tzinfo=None)  # konverze float --> dt
+        time_to_dt = mdates.num2date(time_to).replace(tzinfo=None)      # konverze float --> dt
+        production = self.formated.production(time_from=time_from_dt, time_to=time_to_dt)   # získání dat
+        production_txt = ("vyrobeno: {0:n} ks".format(production))      # formát podle locale
+
+        # insert as text into chart
+        self.production = self.fig.text(0.43, 0.01, production_txt, weight='bold',
+                                        horizontalalignment='center', fontsize=12)
 
 
 # odstranění nežádoucích/nepotřebných ovládacích prvků
@@ -481,15 +513,15 @@ matplotlib.backend_bases.NavigationToolbar2.toolitems = (
         ('Zoom', 'Zoom to rectangle', 'zoom_to_rect', 'zoom'),
         (None, None, None, None),
         ('Save', 'Save the figure', 'filesave', 'save_figure'),
-      )
+        )
 
 
-Stroj = ui_console.select_machine(seznam_stroju)
-TimeFrom, TimeTo = ui_console.select_datetime()
+# Stroj = ui_console.select_machine(seznam_stroju)
+# TimeFrom, TimeTo = ui_console.select_datetime()
 
-# Stroj = "BM_1"
-# TimeFrom = datetime(2019, 9, 2)
-# TimeTo = datetime(2019, 9, 3)
+Stroj = "BM_1"
+TimeFrom = datetime(2019, 9, 2)
+TimeTo = datetime(2019, 9, 3)
 
 # g = Graf(stroj=Stroj, time_from=TimeFrom, time_to=TimeTo)
 h = Graf(stroj=Stroj, time_from=TimeFrom, time_to=TimeTo)
