@@ -7,25 +7,24 @@ import matplotlib.dates as mdates
 import pyodbc
 import locale
 import types
+import sys
 import ui_console
+import configRW
 
 locale.setlocale(locale.LC_ALL, "czech")    # nastavení časových formátů na CZ
 
-# Stroj = 'BM_2'
-# timeFrom = datetime(2019, 8, 18, 5, 30, 0, 0)
-# timeTo = datetime(2019, 9, 8, 6, 0, 0, 0,)
+windows = sys.platform.startswith("win")
+ConfigData = configRW.read_config("config.ini")["KMT"]
+database = ConfigData["database"]
+server = ConfigData["server"]
+user = ConfigData["user"]
+password = ConfigData["password"]
+if windows:
+    driver = 'SQL Server'
+    # driver = '{ODBC Driver 17 for SQL Server}'
+else:
+    driver = 'FreeTDS'
 
-# server = '10.0.0.6\SQLEXPRESS'
-# server = '192.168.60.222\SQLEXPRESS'
-server = '127.0.0.1\SQLEXPRESS'
-database = 'Provozni_Data'
-user = 'VyrobaStandalone'
-password = 'Kmt0203'
-# driver = 'FreeTDS'
-# driver = '{ODBC Driver 17 for SQL Server}'
-driver = 'SQL Server'
-
-# připojení k databázi
 print(f'Connecting to database "{database}" on SQL server "{server}"...')
 try:
     conn = pyodbc.connect(
@@ -41,10 +40,10 @@ except Exception as e:
     exit()
 else:
     print("Connection to SQL successful!")
-cursor = conn.cursor()
+    cursor = conn.cursor()
 
-cursor.execute("SELECT NAZEV_STROJE, ID_STROJE FROM STROJ")     # stažení seznamu strojů
-seznam_stroju = dict(cursor.fetchall())                         # jako dictionary
+cursor.execute("SELECT NAZEV_STROJE, ID_STROJE FROM STROJ")  # stažení seznamu strojů
+seznam_stroju = dict(cursor.fetchall())  # jako dictionary
 
 
 def get_data(stroj, time_from, time_to):
@@ -52,8 +51,11 @@ def get_data(stroj, time_from, time_to):
     start_time = time.time()    # proměnná pro měření času
     print("Acquiring data...")
 
+    time_from = time_from.replace(microsecond=0)
+    time_to = time_to.replace(microsecond=0)
+
     id_stroje = seznam_stroju[stroj]    # id_stroje - int podle názvu
-    cursor.execute("SELECT NAZEV_UDALOSTI, ID_UDALOSTI FROM UDALOST")   # stažení seznamu relevantních událostí
+    cursor.execute("SELECT NAZEV_UDALOSTI, ID_UDALOSTI FROM UDALOST")   # stažení seznamu událostí
     id_udalosti = dict(cursor.fetchall())                               # jako dictionary
     id_udalost_reversed = dict(map(reversed, id_udalosti.items()))      # převrácení klíč <--> hodnota
 
@@ -62,6 +64,7 @@ def get_data(stroj, time_from, time_to):
         f"SELECT TOP 1 ID_UDALOSTI FROM DATA_STROJU WHERE CAS < '{time_from}' AND ID_STROJE = {id_stroje} AND "
         f"(ID_UDALOSTI = {id_udalosti['Provoz']} OR ID_UDALOSTI = {id_udalosti['Naprazdno']} OR "
         f"ID_UDALOSTI = {id_udalosti['Zastaveno']}) ORDER BY CAS DESC")
+
     predchozi_stav = cursor.fetchone()
     if predchozi_stav is not None:
         predchozi_stav = predchozi_stav[0]          # z databáze přichází (int, ) - je potřeba pouze int
@@ -352,6 +355,11 @@ class Graf:
     def pie_2(self, time_from=None, time_to=None):
         """vytvoří pie chart základních stavů stroje v závislosti na aktuálním zoomu"""
         sumy = self.formated.suma(time_from, time_to)   # celkový čas jednotlivých stavů
+
+        def dt2str(dt):
+            dt = dt - timedelta(microseconds=dt.microseconds)
+            return str(dt).replace(", ", "\n")
+
         suma_p = sumy["Provoz"]
         suma_n = sumy["Naprazdno"]
         suma_z = sumy["Zastaveno"]
@@ -359,12 +367,9 @@ class Graf:
         size1 = suma_p / suma_celkem
         size2 = suma_n / suma_celkem
         size3 = suma_z / suma_celkem
-        suma_p = suma_p - timedelta(microseconds=suma_p.microseconds)
-        suma_p = str(suma_p).replace(", ", "\n")
-        suma_n = suma_n - timedelta(microseconds=suma_n.microseconds)
-        suma_n = str(suma_n).replace(", ", "\n")
-        suma_z = suma_z - timedelta(microseconds=suma_z.microseconds)
-        suma_z = str(suma_z).replace(", ", "\n")
+        suma_p = dt2str(suma_p)
+        suma_n = dt2str(suma_n)
+        suma_z = dt2str(suma_z)
 
         sizes = [size1, size2, size3]
         colors = ["tab:green", "tab:orange", "tab:red"]
@@ -516,14 +521,78 @@ matplotlib.backend_bases.NavigationToolbar2.toolitems = (
         )
 
 
-Stroj = ui_console.select_machine(seznam_stroju)
-TimeFrom, TimeTo = ui_console.select_datetime()
+def printhelp():
+    helptext = \
+        """
+    Argumenty nezadány ve šprávném formátu!
+    
+    první argument - označení stroje
+    druhý argument - čas začátku grafu ve formátu den.měsíc.rok_hodina:minuta:vteřina
+                   - nebo specifický interval v tom případě třetí argument nesmí existovat
+                            - zs (začátek směny)
+                            - 24 (posledních 24h)
+                            - t  (poslední týden)
+                            - m  (posledních 30 dní)
+    třetí argument - čas konce grafu ve formátu den.měsíc.rok_hodina:minuta:vteřina
+    
+    příklad: MachineChart.exe BL_4 4.5.2020_12:55:30 8.5.2020_18:30:00
+    příklad: MachineChart.exe R_10 24
+    
+    Pro výběr přes konzoli nezadávejte žádný argument.
+        """
+    print(helptext)
+    exit()
 
-# Stroj = "BM_1"
-# TimeFrom = datetime(2019, 9, 2)
-# TimeTo = datetime(2019, 9, 3)
 
-# g = Graf(stroj=Stroj, time_from=TimeFrom, time_to=TimeTo)
-h = Graf(stroj=Stroj, time_from=TimeFrom, time_to=TimeTo)
+if len(sys.argv) == 4:
+    if sys.argv[1] in seznam_stroju:
+        Stroj = sys.argv[1]
+    else:
+        printhelp()
+    try:
+        TimeFrom = datetime.strptime(sys.argv[2], "%d.%m.%Y_%H:%M:%S")
+        TimeTo = datetime.strptime(sys.argv[3], "%d.%m.%Y_%H:%M:%S")
+    except ValueError:
+        printhelp()
+
+elif len(sys.argv) == 3:
+    if sys.argv[1] in seznam_stroju:
+        Stroj = sys.argv[1]
+    else:
+        printhelp()
+
+    if sys.argv[2] == "zs":
+        TimeFrom = ui_console.start_shift(datetime.now())
+        TimeTo = datetime.now()
+    elif sys.argv[2] == "24":
+        TimeFrom = datetime.now() - timedelta(hours=24)
+        TimeTo = datetime.now()
+    elif sys.argv[2] == "t":
+        TimeFrom = datetime.now() - timedelta(days=7)
+        TimeTo = datetime.now()
+    elif sys.argv[2] == "m":
+        TimeFrom = datetime.now() - timedelta(days=30)
+        TimeTo = datetime.now()
+    else:
+        printhelp()
+
+elif len(sys.argv) == 1:
+    Stroj = ui_console.select_machine(seznam_stroju)
+    TimeFrom, TimeTo = ui_console.select_datetime()
+else:
+    printhelp()
+
+# TimeFrom = datetime.now() - timedelta(hours=24)
+# TimeTo = datetime.now()
+print(str(TimeFrom))
+print(str(TimeTo))
+# exit()
+
+# Stroj = 'B_2'
+# timeFrom = datetime(2019, 8, 18, 5, 30, 0, 0)
+# timeTo = datetime(2019, 9, 8, 6, 0, 0, 0,)
+
+inst = Graf(stroj=Stroj, time_from=TimeFrom, time_to=TimeTo)
 
 plt.show()
+
