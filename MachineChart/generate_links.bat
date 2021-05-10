@@ -1,0 +1,1 @@
+"%CD%"\WPy64-3771\python-3.7.7.amd64\python.exe "%CD%"\generate_links.py
