@@ -36,7 +36,7 @@ def get_data():
     else:
         print("Connection to SQL successful!")
     cursor = conn.cursor()
-    cursor.execute("SELECT NAZEV_STROJE, ID_STROJE FROM STROJ")  # stažení seznamu strojů
+    cursor.execute("SELECT fullcode, id FROM machines")  # stažení seznamu strojů
     seznam_stroju = dict(cursor.fetchall())  # jako dictionary
     return seznam_stroju
 

@@ -42,7 +42,7 @@ def get_data():
     else:
         print("Connection to SQL successful!")
     cursor = conn.cursor()
-    cursor.execute("SELECT NAZEV_STROJE, ID_STROJE FROM STROJ")  # stažení seznamu strojů
+    cursor.execute("SELECT fullcode, id FROM machines")  # stažení seznamu strojů
     seznam_stroju = dict(cursor.fetchall())  # jako dictionary
     return seznam_stroju
 
@@ -71,12 +71,10 @@ class ChartPicker:
         minus_a_min = dt.now().timestamp() - 60
         now = dt.now().timestamp()
 
-        self.geometry = "850x600+50+10"
         self.title = "Selector"
         self.root = Tk()
         self.root.protocol("WM_DELETE_WINDOW", self.callback_exit)
         self.root.title(self.title)
-        self.root.geometry(self.geometry)
 
         nrow = 0
         ncolumn = 0
@@ -213,11 +211,19 @@ class ChartPicker:
                 """
     BL  - Balící linka
     BM  - BoMa (obráběcí automat)
+    BRT - Berta
+    CHK - Plnička CHK
+    ER  - Erfurt
+    HP  - Horizontální lis
     KFM - Plnící automat
     KMP - Kompletovač uzávěrů
     LL  - Lakovací linka
     LS  - Laser
+    OG  - Offline žíhání
+    OKM - Okuma
+    P   - Paust
     R   - Rážovačka
+    SOR - Třídička
     TMP - Tampoprint
     VH  - Váha
                 """

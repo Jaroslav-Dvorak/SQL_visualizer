@@ -47,6 +47,7 @@ def progress_update(val, text):
     root.update_idletasks()
     root.update()
 
+
 def get_data(stroj, time_from, time_to):
     """Downolades data from MSSQL"""
 
@@ -69,7 +70,7 @@ def get_data(stroj, time_from, time_to):
         # print("Connection to SQL successful!")
         cursor = conn.cursor()
 
-    cursor.execute("SELECT NAZEV_STROJE, ID_STROJE FROM STROJ")  # stažení seznamu strojů
+    cursor.execute("SELECT fullcode, id FROM machines")  # stažení seznamu strojů
     seznam_stroju = dict(cursor.fetchall())  # jako dictionary
 
     start_time = time.time()    # proměnná pro měření času
@@ -81,15 +82,15 @@ def get_data(stroj, time_from, time_to):
     time_to = time_to.replace(microsecond=0)
 
     id_stroje = seznam_stroju[stroj]    # id_stroje - int podle názvu
-    cursor.execute("SELECT NAZEV_UDALOSTI, ID_UDALOSTI FROM UDALOST")   # stažení seznamu událostí
+    cursor.execute("SELECT name, id FROM events")   # stažení seznamu událostí
     id_udalosti = dict(cursor.fetchall())                               # jako dictionary
     id_udalost_reversed = dict(map(reversed, id_udalosti.items()))      # převrácení klíč <--> hodnota
 
     # zjištění stavu stroje před začátkem grafu
     cursor.execute(
-        f"SELECT TOP 1 ID_UDALOSTI FROM DATA_STROJU WHERE CAS < '{time_from}' AND ID_STROJE = {id_stroje} AND "
-        f"(ID_UDALOSTI = {id_udalosti['Provoz']} OR ID_UDALOSTI = {id_udalosti['Naprazdno']} OR "
-        f"ID_UDALOSTI = {id_udalosti['Zastaveno']}) ORDER BY CAS DESC")
+        f"SELECT TOP 1 event_id FROM data_events WHERE occured < '{time_from}' AND machine_id = {id_stroje} AND "
+        f"(event_id = {id_udalosti['Provoz']} OR event_id = {id_udalosti['Naprazdno']} OR "
+        f"event_id = {id_udalosti['Zastaveno']}) ORDER BY occured DESC")
 
     predchozi_stav = cursor.fetchone()
     if predchozi_stav is not None:
@@ -98,8 +99,8 @@ def get_data(stroj, time_from, time_to):
         predchozi_stav = None                       # pokud není záznam před vybraným časovým intervalem
 
     # stažení relevantních dat
-    cursor.execute(f"SELECT ID_UDALOSTI, CAS FROM DATA_STROJU WHERE CAS BETWEEN '{time_from}' AND '{time_to}' "
-                   f"AND ID_STROJE = {id_stroje} ORDER BY CAS")
+    cursor.execute(f"SELECT event_id, occured FROM data_events WHERE occured BETWEEN '{time_from}' AND '{time_to}' "
+                   f"AND machine_id = {id_stroje} AND inc_outg = 1 ORDER BY occured")
     table = cursor.fetchall()
     # print(f"Transfered in {round(time.time() - start_time, 3)}s")
     if predchozi_stav is None:
@@ -133,8 +134,8 @@ def get_data(stroj, time_from, time_to):
     # print(f"Prepared in {round(time.time() - start_time, 3)}s")     # výpis doby přípravy datového balíku
 
     # data z počítadel
-    cursor.execute(F"SELECT POCITADLO, CAS FROM POCITADLA WHERE ID_STROJE={id_stroje} AND "
-                   f" CAS BETWEEN '{time_from}' AND '{time_to}' ORDER BY CAS")
+    cursor.execute(F"SELECT counter, occured FROM data_counters WHERE machine_id={id_stroje} AND "
+                   f" occured BETWEEN '{time_from}' AND '{time_to}' ORDER BY occured")
     counter_status = cursor.fetchall()
 
     return compl_data, counter_status
@@ -537,7 +538,7 @@ class Graf:
         time_from_dt = mdates.num2date(time_from).replace(tzinfo=None)  # konverze float --> dt
         time_to_dt = mdates.num2date(time_to).replace(tzinfo=None)      # konverze float --> dt
         production = self.formated.production(time_from=time_from_dt, time_to=time_to_dt)   # získání dat
-        production_txt = f"vyrobeno: {production:n} ks"      # formát podle locale
+        production_txt = ("vyrobeno: {0:n} ks".format(production))      # formát podle locale
 
         # insert as text into chart
         self.production = self.fig.text(0.43, 0.01, production_txt, weight='bold',
